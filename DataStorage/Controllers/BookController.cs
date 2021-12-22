@@ -13,6 +13,7 @@ using Microsoft.Extensions.Configuration;
 using System.Data.SQLite;
 using DataStorage.ResponseModel;
 using System.Text.Json;
+using Newtonsoft.Json.Linq;
 
 namespace DataStorage.Controllers
 {
@@ -29,12 +30,50 @@ namespace DataStorage.Controllers
         [HttpGet("{Author}")]
         public ActionResult<string> Index([FromQuery] string Author)
         {
-            //Varchar to Guid
+           
+            
             string connectionString = "Data Source=DataStorage.db";
-            BookViewModel bookViewModel = new BookViewModel();
             using var con = new SQLiteConnection(connectionString);
             con.Open();
             string query = "SELECT Books.Id,Books.Title, Books.ISBN,Books.Year,Authors.FullName FROM Books INNER JOIN Authors ON Authors.Id = Books.Author_Id WHERE Authors.FullName = '" + Author + "'";
+            using var cmd = new SQLiteCommand(query, con);
+
+            
+            using SQLiteDataReader rdr = cmd.ExecuteReader();
+            List<BookResponse> parts = new List<BookResponse>();
+
+            while (rdr.Read())
+            {
+
+                parts.Add(new BookResponse(rdr.GetString(0), rdr.GetString(1), rdr.GetString(2), rdr.GetString(4), rdr.GetInt32(3)));
+
+            }
+            var Json = JsonSerializer.Serialize(parts);
+            var jArr = JArray.Parse(Json);
+
+            jArr.Descendants().OfType<JProperty>()
+                              .Where(p => p.Name == "" )
+                              .ToList()
+                              .ForEach(att => att.Remove());
+
+            var newJson = jArr.ToString();
+            string jsonString = newJson;
+
+     
+            //odpowiedz parameter
+            return Ok(jsonString);
+        }
+
+        [HttpGet]
+        [Route("GetAllId")]
+        public ActionResult<string> IndexId()
+        {
+            
+            string connectionString = "Data Source=DataStorage.db";
+          
+            using var con = new SQLiteConnection(connectionString);
+            con.Open();
+            string query = "SELECT Books.Id,Books.Title, Books.ISBN,Books.Year,Authors.FullName FROM Books INNER JOIN Authors ON Authors.Id = Books.Author_Id";
             using var cmd = new SQLiteCommand(query, con);
 
 
@@ -44,43 +83,51 @@ namespace DataStorage.Controllers
             while (rdr.Read())
             {
 
-                parts.Add(new BookResponse(rdr.GetInt32(0), rdr.GetString(1), rdr.GetString(2), rdr.GetString(4), rdr.GetInt32(3)));
+                parts.Add(new BookResponse(rdr.GetString(0), rdr.GetString(1), rdr.GetString(2), rdr.GetString(4), rdr.GetInt32(3)));
+                
 
             }
+            
+            var Json = JsonSerializer.Serialize(parts);
+            var jArr = JArray.Parse(Json);
 
+            jArr.Descendants().OfType<JProperty>()
+                              .Where(p => p.Name == "Title" || p.Name =="ISBN" || p.Name == "Year" || p.Name == "Authors")
+                              .ToList()
+                              .ForEach(att => att.Remove());
 
-            string jsonString = JsonSerializer.Serialize(parts);
+            var newJson = jArr.ToString();
+            string jsonString = newJson;
             //odpowiedz parameter
-            return jsonString;
+            return Ok(jsonString);
         }
 
-        [HttpGet]
-        [Route("")]
-        public ActionResult<string> IndexId()
+        [HttpPost]
+        [Route("AddBook")]
+        public ActionResult Post([FromHeader] BookHeader book)
         {
-            //Varchar to Guid
+            Guid g = Guid.NewGuid();
+            var byteArray = g.ToByteArray();
+            string hex = BitConverter.ToString(byteArray).Replace("-", string.Empty);
+            Console.WriteLine(hex);
             string connectionString = "Data Source=DataStorage.db";
-            BookViewModel bookViewModel = new BookViewModel();
             using var con = new SQLiteConnection(connectionString);
             con.Open();
-            string query = "SELECT Books.Id,Books.Title, Books.ISBN,Books.Year,Authors.FullName FROM Books INNER JOIN Authors ON Authors.Id = Books.Author_Id";
-            using var cmd = new SQLiteCommand(query, con);
-
-
-            using SQLiteDataReader rdr = cmd.ExecuteReader();
-            List<GetMetaInfoBook> parts = new List<GetMetaInfoBook>();
-
-            while (rdr.Read())
-            {
-                parts.Add(new GetMetaInfoBook(rdr.GetString(1), rdr.GetString(4),  rdr.GetInt32(3),rdr.GetString(2)));
-            }
-
-
-            string jsonString = JsonSerializer.Serialize(parts);
-            //odpowiedz parameter
-            return jsonString;
+            using var cmd = new SQLiteCommand(con);
+            cmd.CommandText = "INSERT INTO Books(Id,Title,ISBN,Year) VALUES(@Id,@Title,@ISBN,@Year)";
+            cmd.Parameters.AddWithValue("@Id",hex);
+            cmd.Parameters.AddWithValue("@Title", book.Title);
+            cmd.Parameters.AddWithValue("@ISBN", book.ISBN);
+            cmd.Parameters.AddWithValue("@Year", book.Year);
+            cmd.Prepare();
+            cmd.ExecuteNonQuery();
+          
+            cmd.CommandText = "INSERT INTO Authors(Id,FullName) VALUES(@Id,@FullName)";
+            cmd.Parameters.AddWithValue("@Id",Guid.NewGuid() );
+            cmd.Parameters.AddWithValue("@FullName", book.Author);
+            cmd.Prepare();
+            cmd.ExecuteNonQuery();
+            return Ok();
         }
-
-
     }
 }
